@@ -36,3 +36,24 @@ rm -r <file_name>
 # Find a file/folder
 find -name <file/folder_name>
 find Desktop/Riyad -name <file/folder_name>
+
+# Find text inside in file
+grep "finding_text" Desktop/file_name.txt
+```
+
+#### Shell Scripting
+```bash
+nano script_file_name.sh
+```
+```bash
+#!/bin/bash
+name="Riyad"
+echo "Hello, $name"
+```
+
+ctrl + s and ctrl + x
+```bash
+Permission/execulable: chmod +x script_file_name.sh
+Run: ./variables.sh
+```
+
