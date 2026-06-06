@@ -10,6 +10,7 @@ pwd
 
 # All folder and files
 ls
+
 # More detailed information
 ls -l
 
