@@ -1,89 +1,68 @@
-# Betopia VPS — Django Daily Server
+# Betopia VPS — Django Servers
 
-## Project
+## Projects
 
 | App | Folder | Virtual Env | Socket | Domain |
 |---|---|---|---|---|
+| Django Backend (limited) | `~/betopia-limited-server` | `~/betopia-limited-server/env` | `/run/limited.sock` | dashboard.betopialimited.com |
 | Django Backend (daily) | `~/betopia-daily-server` | `~/betopia-daily-server/env` | `/run/daily.sock` | server.betopiadaily.shop |
-
----
-
-## Project Structure
-
-```
-betopia-daily-server/
-├── apps/
-├── config/            # settings.py, wsgi.py
-├── staticfiles/       # collectstatic output
-├── media/             # uploaded files
-├── env/               # virtual environment
-├── manage.py
-└── db.sqlite3         # replaced by PostgreSQL
-```
 
 ---
 
 ## Key Files
 
-| Type | File |
-|---|---|
-| Django Settings | `~/betopia-daily-server/config/settings.py` |
-| Gunicorn Socket | `/etc/systemd/system/daily.socket` |
-| Gunicorn Service | `/etc/systemd/system/daily.service` |
-| Nginx Config | `/etc/nginx/sites-available/daily` |
+| Type | Limited | Daily |
+|---|---|---|
+| Django Settings | `~/betopia-limited-server/config/settings.py` | `~/betopia-daily-server/config/settings.py` |
+| Gunicorn Socket | `/etc/systemd/system/limited.socket` | `/etc/systemd/system/daily.socket` |
+| Gunicorn Service | `/etc/systemd/system/limited.service` | `/etc/systemd/system/daily.service` |
+| Nginx Config | `/etc/nginx/sites-available/limited` | `/etc/nginx/sites-available/daily` |
 
 ```bash
-# Open Django settings
+# ── Limited ────────────────────────────────────────────────
+nano ~/betopia-limited-server/config/settings.py
+sudo nano /etc/systemd/system/limited.socket
+sudo nano /etc/systemd/system/limited.service
+sudo nano /etc/nginx/sites-available/limited
+
+# ── Daily ──────────────────────────────────────────────────
 nano ~/betopia-daily-server/config/settings.py
-
-# Open Gunicorn socket
 sudo nano /etc/systemd/system/daily.socket
-
-# Open Gunicorn service
 sudo nano /etc/systemd/system/daily.service
-
-# Open Nginx config
 sudo nano /etc/nginx/sites-available/daily
 ```
 
 ---
 
-## Database (PostgreSQL)
+## Database
 
-| Key | Value |
-|---|---|
-| Database | `betopia_daily` |
-| User | `betopia_daily_user` |
-| Host | `localhost` |
-| Port | `5432` |
+| App | Engine | Database | User |
+|---|---|---|---|
+| Limited | SQLite | `db.sqlite3` | — |
+| Daily | PostgreSQL | `betopia_daily` | `betopia_daily_user` |
 
 ```bash
-# Access PostgreSQL
+# Access PostgreSQL (daily)
 sudo -u postgres psql
-
-# Connect to the database
 \c betopia_daily
-
-# List tables
 \dt
-
-# Exit
 \q
 ```
 
 ---
 
-## SSL Certificate
+## SSL Certificates
 
 | Domain | Certificate Path |
 |---|---|
+| dashboard.betopialimited.com | `/etc/letsencrypt/live/dashboard.betopialimited.com/` |
 | server.betopiadaily.shop | `/etc/letsencrypt/live/server.betopiadaily.shop/` |
 
 ```bash
 # List all certificates
 sudo certbot certificates
 
-# Renew certificates
+# Renew
 sudo certbot renew --dry-run
 ```
 
@@ -92,15 +71,21 @@ sudo certbot renew --dry-run
 ## Gunicorn (Systemd)
 
 ```bash
-# Status
+# ── Status ─────────────────────────────────────────────────
+sudo systemctl status limited.socket
+sudo systemctl status limited.service
+
 sudo systemctl status daily.socket
 sudo systemctl status daily.service
 
-# Restart (after code changes)
+# ── Restart (after code changes) ───────────────────────────
+sudo systemctl restart limited.socket
+sudo systemctl restart limited.service
+
 sudo systemctl restart daily.socket
 sudo systemctl restart daily.service
 
-# Reload systemd (after editing socket/service files)
+# ── Reload systemd (after editing socket/service files) ────
 sudo systemctl daemon-reload
 ```
 
@@ -118,10 +103,8 @@ sudo systemctl reload nginx
 # Full restart
 sudo systemctl restart nginx
 
-# List enabled sites
+# List sites
 ls /etc/nginx/sites-enabled/
-
-# List available sites
 ls /etc/nginx/sites-available/
 ```
 
@@ -130,14 +113,17 @@ ls /etc/nginx/sites-available/
 ## Static Files
 
 ```bash
-# Activate venv
-source ~/betopia-daily-server/env/bin/activate
+# ── Limited ────────────────────────────────────────────────
+source ~/betopia-limited-server/env/bin/activate
+cd ~/betopia-limited-server
+python manage.py collectstatic
+sudo chmod -R 755 /home/ubuntu/betopia-limited-server/staticfiles
+sudo chmod o+rx /home/ubuntu /home/ubuntu/betopia-limited-server
 
-# Collect static (run after UI changes)
+# ── Daily ──────────────────────────────────────────────────
+source ~/betopia-daily-server/env/bin/activate
 cd ~/betopia-daily-server
 python manage.py collectstatic
-
-# Fix permissions if 403 errors appear
 sudo chmod -R 755 /home/ubuntu/betopia-daily-server/staticfiles
 sudo chmod o+rx /home/ubuntu /home/ubuntu/betopia-daily-server
 ```
@@ -146,19 +132,23 @@ sudo chmod o+rx /home/ubuntu /home/ubuntu/betopia-daily-server
 
 ## After VPS Reboot
 
-Gunicorn socket and service are enabled on startup. If they don't come up:
+Both services are enabled on startup. If they don't come up:
 
 ```bash
+sudo systemctl start limited.socket
+sudo systemctl start limited.service
+
 sudo systemctl start daily.socket
 sudo systemctl start daily.service
+
 sudo systemctl restart nginx
 ```
 
-Verify everything is running:
+Verify:
 
 ```bash
+sudo systemctl status limited.service
 sudo systemctl status daily.service
-sudo systemctl status daily.socket
 sudo systemctl status nginx
 ```
 
@@ -167,13 +157,15 @@ sudo systemctl status nginx
 ## Debug
 
 ```bash
-# Gunicorn logs
+# ── Gunicorn logs ──────────────────────────────────────────
+sudo journalctl -u limited.service -n 50
 sudo journalctl -u daily.service -n 50
 
-# Nginx error log
+# ── Nginx error log ────────────────────────────────────────
 sudo tail -f /var/log/nginx/error.log
 
-# Check socket file exists
+# ── Check socket files exist ───────────────────────────────
+file /run/limited.sock
 file /run/daily.sock
 ```
 
@@ -182,6 +174,11 @@ file /run/daily.sock
 ## Test URLs
 
 ```
+# Limited
+https://dashboard.betopialimited.com/admin/
+https://dashboard.betopialimited.com/static/admin/css/base.css
+
+# Daily
 https://server.betopiadaily.shop/admin/
 https://server.betopiadaily.shop/static/admin/css/base.css
 ```
@@ -197,11 +194,21 @@ Nginx (HTTPS)
    ↓
 /static → staticfiles/
 /media  → media/
-/       → /run/daily.sock
+/       → .sock
    ↓
 Gunicorn
    ↓
 Django (config.wsgi)
    ↓
-PostgreSQL (betopia_daily)
+Database (SQLite / PostgreSQL)
 ```
+
+---
+
+## Notes
+
+- Each Django project needs its own socket, service, and nginx config
+- `.socket` = systemd configuration file
+- `.sock` = runtime Unix socket file created at startup
+- Nginx serves static/media directly — never hits Gunicorn
+- PostgreSQL 15+ requires `GRANT ALL ON SCHEMA public` for new users
