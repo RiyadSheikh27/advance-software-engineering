@@ -8,6 +8,7 @@
 | Dashboard (backend) | `~/betopia-group-dashboard` | 6005 | dashboard.betopiagroup.com |
 | Daily (frontend) | `~/Betopia-Daily` | 3000 | betopiadaily.shop |
 | PulseGrid (frontend) | `~/PulseGrid-Betopia` | 3007 | betopiapulsegrid.com |
+| PhotoFrame (frontend) | `~/Betopiagroup-photoFrame` | 8001 | photoframe.betopiagroup.com |
 
 ---
 
@@ -19,6 +20,7 @@
 | Dashboard | `/etc/nginx/sites-available/betopia-dashboard` |
 | Daily | `/etc/nginx/sites-available/betopia-daily` |
 | PulseGrid | `/etc/nginx/sites-available/pulse-grid` |
+| PhotoFrame | `/etc/nginx/sites-available/betopia-photoframe` |
 
 ```bash
 # Open configs
@@ -26,6 +28,7 @@ sudo nano /etc/nginx/sites-available/betopia
 sudo nano /etc/nginx/sites-available/betopia-dashboard
 sudo nano /etc/nginx/sites-available/betopia-daily
 sudo nano /etc/nginx/sites-available/pulse-grid
+sudo nano /etc/nginx/sites-available/betopia-photoframe
 
 # List all enabled sites
 ls /etc/nginx/sites-enabled/
@@ -50,6 +53,7 @@ ls /etc/nginx/sites-available/
 | dashboard.betopiagroup.com | `/etc/letsencrypt/live/dashboard.betopiagroup.com/` |
 | betopiadaily.shop | `/etc/letsencrypt/live/betopiadaily.shop/` |
 | betopiapulsegrid.com | `/etc/letsencrypt/live/betopiapulsegrid.com/` |
+| photoframe.betopiagroup.com | `/etc/letsencrypt/live/photoframe.betopiagroup.com/` |
 
 ```bash
 # List all certificates
@@ -57,6 +61,9 @@ sudo certbot certificates
 
 # Renew
 sudo certbot renew --dry-run
+
+# Issue new cert (first-time setup for a new site)
+sudo certbot --nginx -d photoframe.betopiagroup.com
 ```
 
 ---
@@ -69,6 +76,7 @@ sudo certbot renew --dry-run
 | `betopia-dashboard` | Dashboard | `~/betopia-group-dashboard` |
 | `betopia-daily` | Daily frontend | `~/Betopia-Daily` |
 | `pulse-grid` | PulseGrid frontend | `~/PulseGrid-Betopia` |
+| `betopia-photoframe` | PhotoFrame frontend | `~/Betopiagroup-photoFrame` |
 
 ```bash
 # View all running apps
@@ -79,12 +87,20 @@ pm2 logs betopia
 pm2 logs betopia-dashboard
 pm2 logs betopia-daily
 pm2 logs pulse-grid
+pm2 logs betopia-photoframe
 ```
 
 > **Note on starting `pulse-grid`:** It does not use a fixed port inside `package.json`'s start script (`"start": "next start"`), so the port must be passed explicitly both via env var and the `-p` flag, or it will default to 3000 and collide with `betopia-daily`:
 > ```bash
 > PORT=3007 pm2 start npm --name "pulse-grid" -- start -- -p 3007
 > ```
+
+> **Note on starting `betopia-photoframe`:** Unlike PulseGrid, this app's `start` script already hardcodes its port (`"start": "next start -p 8001"`), so no `PORT` env var or `-p` flag is needed at the PM2 level — `npm start` always binds to 8001 on its own:
+> ```bash
+> pm2 start npm --name "betopia-photoframe" -- start
+> pm2 save
+> ```
+> Still worth checking `package.json` before deploying any new app — PulseGrid (no fixed port) and PhotoFrame (fixed, but non-default port 8001) behave differently.
 
 ---
 
@@ -96,6 +112,7 @@ pm2 restart betopia
 pm2 restart betopia-dashboard
 pm2 restart betopia-daily
 pm2 restart pulse-grid
+pm2 restart betopia-photoframe
 
 # Restart all at once
 pm2 restart all
@@ -119,6 +136,34 @@ sudo systemctl restart nginx
 > Nginx reloads all sites at once — there's no per-site reload. But only the file you edited will have changed, so it's safe to reload globally.
 >
 > `sudo nginx -T` dumps the config **on disk**, not what the running worker currently has loaded — it can look correct even if a reload is still pending. When in doubt, just reload.
+
+### PhotoFrame Nginx config template
+
+```nginx
+server {
+    listen 80;
+    server_name photoframe.betopiagroup.com;
+
+    location / {
+        proxy_pass http://localhost:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Symlink and reload (certbot will edit this file in place to add the SSL block once the cert is issued):
+
+```bash
+sudo ln -s /etc/nginx/sites-available/betopia-photoframe /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
 
 ---
 
@@ -150,9 +195,16 @@ rm -rf .next
 npm install
 npm run build
 pm2 restart pulse-grid
+
+# ── PhotoFrame ─────────────────────────────────────────────
+cd ~/Betopiagroup-photoFrame
+git pull
+npm install
+npm run build
+pm2 restart betopia-photoframe
 ```
 
-> `pm2 restart` alone re-runs the existing build — it does **not** rebuild. Always run `npm run build` (and for PulseGrid, clear `.next` first) before restarting, or PM2 will keep serving stale content.
+> `pm2 restart` alone re-runs the existing build — it does **not** rebuild. Always run `npm run build` before restarting, or PM2 will keep serving stale content.
 
 ---
 
@@ -186,6 +238,7 @@ cat ~/betopia-group-client/.env
 cat ~/betopia-group-dashboard/.env
 cat ~/Betopia-Daily/.env
 cat ~/PulseGrid-Betopia/.env
+cat ~/Betopiagroup-photoFrame/.env
 ```
 
 ---
@@ -205,3 +258,6 @@ cat ~/PulseGrid-Betopia/.env
    ```
 
 **Lesson:** Any new site config — always `nginx -t && systemctl reload nginx` right after symlinking it into `sites-enabled/`. Don't assume "config file looks right" means "Nginx is using it."
+
+### PhotoFrame added (July 2026)
+Checked `package.json` before deploying, per the lesson learned from PulseGrid. Unlike PulseGrid, `betopia-photoframe`'s `start` script already hardcodes `-p 8001`, so PM2 needed no `PORT` env var or extra flag — just `pm2 start npm --name "betopia-photoframe" -- start`. Deployed with a dedicated Nginx config at `/etc/nginx/sites-available/betopia-photoframe` proxying to `localhost:8001`, symlinked into `sites-enabled/`, and Nginx reloaded immediately after symlinking — before requesting the SSL cert.
